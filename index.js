@@ -57,6 +57,36 @@ const HIGH_COMMAND_ROLE_IDS = [
 ];
 const HIGH_COMMAND_CHANNEL_ID = '1347217909134528556';
 
+// OFFICER COMMAND ROLES
+const LIEUTENANT_ROLE_IDS = [
+  '1347217907163332631',
+  '1472998038061711401'
+];
+
+const CAPTAIN_ROLE_IDS = [
+  '1447068884669694074',
+  '1447069005868433509',
+  '1347217907163332632',
+  '1447069110000156722',
+  '1447069216359317675',
+  '1447069332449263617',
+  '1472998365397778473'
+];
+
+// ONLY include roles the bot is allowed to manage automatically
+// Leave Lieutenant and above manual
+const RANK_ROLE_IDS = {
+  'Aspirant': '1485738443647484107',
+  'Neophyte': '1353901950545952849',
+  'Scout': '1486020968962068661',
+  'Battle Brother': '1347217906873794668',
+  'Veteran': '1347217906873794667',
+  'Bladeguard Veteran': '1446721446020780134',
+  'Fireteam Leader': '1412365802878926890',
+  'Sergeant': '1348503838184968304',
+  'Veteran Sergeant': '1441287705467027466'
+};
+
 // ENVOY
 const ENVOY_ROLE_ID = '1347217906873794665';
 
@@ -109,10 +139,22 @@ const rankData = [
   {
     name: 'Veteran',
     minPoints: 60,
-    description: 'A Veteran Astartes of the Blood Angels is a warrior of proven nobility and unbreakable resolve, forged through brutal warfare and refined by the traditions of Sanguinius.',
+    description: 'A Veteran Astartes of the Blood Angels is a warrior of proven nobility and unbreakable resolve, forged through brutal warfare and refined by the traditions of         Sanguinius.',
     expectations: 'Guide both Battle-Brothers and Initiates, ensuring they uphold the honor, restraint, and martial perfection of the Sons of Sanguinius.'
   },
   {
+    name: 'Bladeguard Veteran',
+    minPoints: 70,
+    description: 'A Bladeguard Veteran of the Blood Angels is a stalwart warrior of proven honor, entrusted to stand firm as an anvil against the enemies of the Chapter.',
+    expectations: 'Hold the line with discipline, defend your brothers with unwavering resolve, and embody the noble endurance of the sons of Sanguinius.'
+  },
+  {
+    name: 'Fireteam Leader',
+    minPoints: 75,
+    description: 'A Fireteam Leader is a trusted brother placed in command of a smaller combat element, expected to guide his squad with discipline and clarity.',
+    expectations: 'Lead your assigned brothers with steadiness, maintain order in battle, and prove your readiness for higher command through action and example.'
+},
+{
     name: 'Sergeant',
     minPoints: 80,
     description: 'A Sergeant of the Blood Angels is a seasoned Space Marine entrusted with leading a squad of Battle-Brothers, forming a vital pillar of the Chapter’s command structure.',
@@ -165,6 +207,8 @@ const promotionMessages = {
   'Scout': '🩸 {user} now walks as a **Scout** — unseen blade, silent hunter.',
   'Battle Brother': '⚔️ {user} stands now as a **Battle Brother** of the Chapter.',
   'Veteran': '🛡️ {user} has earned the honor of **Veteran** through service and discipline.',
+  'Bladeguard Veteran': '🛡️ {user} has been elevated to **Bladeguard Veteran** — a warrior of honor, resilience, and unwavering defense.',
+  'Fireteam Leader': '⚔️ {user} now stands as a **Fireteam Leader**, entrusted to guide their brothers in battle and uphold discipline within the squad.',
   'Sergeant': '⚔️ {user} rises to **Sergeant** — lead well, brother.',
   'Veteran Sergeant': '🩸 {user} stands as **Veteran Sergeant**, a paragon of discipline and war.',
   'Lieutenant': '🛡️ {user} is elevated to **Lieutenant**, a commander among the sons of Sanguinius.',
@@ -342,6 +386,81 @@ function buildPromotionMessage(member, rank, points) {
   return msg;
 }
 
+async function syncMemberRankRole(member, newRankName) {
+  if (!member || !member.guild) return;
+  if (!RANK_ROLE_IDS[newRankName]) return;
+
+  const trackedRoleIds = Object.values(RANK_ROLE_IDS).filter(Boolean);
+  const newRoleId = RANK_ROLE_IDS[newRankName];
+
+  try {
+    const rolesToRemove = trackedRoleIds.filter(
+      roleId => roleId && roleId !== newRoleId && member.roles.cache.has(roleId)
+    );
+
+    if (rolesToRemove.length > 0) {
+      await member.roles.remove(rolesToRemove);
+    }
+
+    if (!member.roles.cache.has(newRoleId)) {
+      await member.roles.add(newRoleId);
+    }
+  } catch (error) {
+    console.error(`Failed to sync rank roles for ${member.user.tag}:`, error);
+  }
+}
+
+async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoints, newPoints) {
+  if (!guild || !member) return;
+
+  const newRank = getRank(newPoints);
+  const userData = getUserPromotion(member.id);
+  const oldRank = getRank(oldPoints);
+
+  if (
+    userData.eligibleRank === 'Captain' ||
+    userData.eligibleRank === 'High Command' ||
+    userData.officialRank === 'Captain' ||
+    userData.officialRank === 'High Command'
+  ) {
+    return;
+  }
+
+  if (newRank.name !== oldTrackedRank) {
+    setEligibleRank(member.id, newRank.name);
+
+    if (newPoints > oldPoints && newRank.minPoints > oldRank.minPoints) {
+      const highCommandChannel = guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
+
+      if (highCommandChannel) {
+        await highCommandChannel.send(
+          `⚠️ **Promotion Review Required**\n` +
+          `Brother ${member} has reached the required AAR standing for **${newRank.name}**.\n` +
+          `Awaiting judgment and elevation by High Command.`
+        );
+      }
+    }
+  }
+}
+
+function hasCommandAuthority(member) {
+  if (!member) return false;
+
+  const hasHighCommandRole = HIGH_COMMAND_ROLE_IDS.some(roleId =>
+    member.roles.cache.has(roleId)
+  );
+
+  const hasLieutenantRole = LIEUTENANT_ROLE_IDS.some(roleId =>
+    member.roles.cache.has(roleId)
+  );
+
+  const hasCaptainRole = CAPTAIN_ROLE_IDS.some(roleId =>
+    member.roles.cache.has(roleId)
+  );
+
+  return hasHighCommandRole || hasLieutenantRole || hasCaptainRole;
+}
+
 // ================= AAR POINT CALCULATION =================
 
 function getMentionedRoleNames(message) {
@@ -509,7 +628,7 @@ client.on(Events.GuildMemberAdd, member => {
   const channel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
   if (!channel) return;
 
-  const isEnvoy = member.roles.cache.has(1347217906873794665);
+  const isEnvoy = member.roles.cache.has(ENVOY_ROLE_ID);
 
   if (isEnvoy) {
     return channel.send(
@@ -519,23 +638,23 @@ client.on(Events.GuildMemberAdd, member => {
       `Conduct yourself with dignity, honor, and purpose.\n\n` +
       `⚙️ **Required:**\n` +
       `• Review the rules and conduct\n\n` +
-      `Use \!help\` if guidance is required.`
+      `Use !help if guidance is required.`
     );
   }
 
   return channel.send(
     `🩸 The Machine Spirit acknowledges a new arrival...\n` +
-    `Welcome, ${member}.\n\n` +
-    `You now stand among the sons of Sanguinius as a candidate of the 10th Company.\n` +
-    `Master your discipline. Control the thirst. Serve with honor.\n\n` +
-    `⚙️ Begin your induction:\n` +
-    `• Review the rules and conduct\n` +
-    `• Report to Aspirant uniform issue:<#1485971068005912738>\n` +
-    `• Look at the rank structure in <#${RANKS_CHANNEL_ID}>\n` +
-    `• Submit AARs after missions\n\n` +
-    `Use !help to access all Machine Spirit functions.`
+      `Welcome, ${member}.\n\n` +
+      `You now stand among the sons of Sanguinius as a candidate of the 10th Company.\n` +
+      `Master your discipline. Control the thirst. Serve with honor.\n\n` +
+      `⚙️ Begin your induction:\n` +
+      `• Review the rules and conduct\n` +
+      `• Report to Aspirant uniform issue:<#1485971068005912738>\n` +
+      `• Look at the rank structure in <#${RANKS_CHANNEL_ID}>\n` +
+      `• Submit AARs after missions\n\n` +
+      `Use !help to access all Machine Spirit functions.`
   );
-})
+});
 
 // ================= MESSAGE HANDLER =================
 
@@ -560,12 +679,12 @@ client.on(Events.MessageCreate, async message => {
       '`!thirst` - Blood Angels lore\n' +
       '`!profile` - View your service record\n' +
       '`!points` - View your AAR points\n' +
-      '`!promote @user rank` - Promote (High Command only)\n' +
-      '`!demote @user rank` - Demote (High Command only)\n' +
-      '`!setpoints @user amount` - Set AAR points\n' +
-      '`!addpoints @user amount` - Add AAR points\n' +
-      '`!removepoints @user amount` - Remove AAR points\n' +
-      '`!setrank @user trackedRank | officialRank` - Set tracked + display rank'
+      '`!promote @user rank` - Promote (High Command / Captain / Lieutenant)\n' +
+      '`!demote @user rank` - Demote (High Command / Captain / Lieutenant)\n' +
+      '`!setpoints @user amount` - Set AAR points (Command authority)\n' +
+      '`!addpoints @user amount` - Add AAR points (Command authority)\n' +
+      '`!removepoints @user amount` - Remove AAR points (Command authority)\n' +
+      '`!setrank @user trackedRank | officialRank` - Set tracked + display rank (Command authority)'
     );
   }
 
@@ -682,31 +801,17 @@ client.on(Events.MessageCreate, async message => {
     storeAAR(signature, message.id);
 
     for (const member of creditedMembers) {
+      const oldPoints = getUserXP(member.id);
+      const oldTrackedRank = getUserPromotion(member.id).eligibleRank || getRank(oldPoints).name;
       const newTotal = addUserXP(member.id, earnedPoints);
-      const rank = getRank(newTotal);
-      const userData = getUserPromotion(member.id);
 
-      if (
-        userData.eligibleRank === 'Captain' ||
-        userData.eligibleRank === 'High Command' ||
-        userData.officialRank === 'Captain'
-      ) {
-        continue;
-      }
-
-      if (rank.name !== userData.eligibleRank) {
-        setEligibleRank(member.id, rank.name);
-
-        const highCommandChannel = message.guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
-
-        if (highCommandChannel) {
-          await highCommandChannel.send(
-            `⚠️ **Promotion Review Required**\n` +
-            `Brother ${member} has reached the required AAR standing for **${rank.name}**.\n` +
-            `Awaiting judgment and elevation by High Command.`
-          );
-        }
-      }
+      await handleRankThresholdChange(
+        message.guild,
+        member,
+        oldTrackedRank,
+        oldPoints,
+        newTotal
+      );
     }
 
     const creditedList = creditedMembers.map(member => `${member}`).join(', ');
@@ -722,12 +827,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= PROMOTE COMMAND =================
   if (message.content.startsWith('!promote')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may issue promotions.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may issue promotions.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -750,6 +851,7 @@ client.on(Events.MessageCreate, async message => {
 
     setEligibleRank(target.id, rank.name);
     setOfficialRank(target.id, rank.name);
+    await syncMemberRankRole(target, rank.name);
 
     const points = getUserXP(target.id);
 
@@ -772,12 +874,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= DEMOTE COMMAND =================
   if (message.content.startsWith('!demote')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may issue demotions.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may issue demotions.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -800,6 +898,7 @@ client.on(Events.MessageCreate, async message => {
 
     setEligibleRank(target.id, rank.name);
     setOfficialRank(target.id, rank.name);
+    await syncMemberRankRole(target, rank.name);
 
     try {
       await target.send(
@@ -823,12 +922,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= SETPOINTS COMMAND =================
   if (message.content.startsWith('!setpoints')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may set AAR points.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may set AAR points.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -843,7 +938,17 @@ client.on(Events.MessageCreate, async message => {
       return message.reply('Usage: !setpoints @user amount');
     }
 
+    const oldPoints = getUserXP(target.id);
+    const oldTrackedRank = getUserPromotion(target.id).eligibleRank || getRank(oldPoints).name;
     const newTotal = setUserXP(target.id, amount);
+
+    await handleRankThresholdChange(
+      message.guild,
+      target,
+      oldTrackedRank,
+      oldPoints,
+      newTotal
+    );
 
     return message.reply(
       `📜 ${target} now holds **${newTotal} AAR points** in the Chapter records.`
@@ -852,12 +957,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= ADDPOINTS COMMAND =================
   if (message.content.startsWith('!addpoints')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may adjust AAR points.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may adjust AAR points.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -872,7 +973,17 @@ client.on(Events.MessageCreate, async message => {
       return message.reply('Usage: !addpoints @user amount');
     }
 
+    const oldPoints = getUserXP(target.id);
+    const oldTrackedRank = getUserPromotion(target.id).eligibleRank || getRank(oldPoints).name;
     const newTotal = addUserXP(target.id, amount);
+
+    await handleRankThresholdChange(
+      message.guild,
+      target,
+      oldTrackedRank,
+      oldPoints,
+      newTotal
+    );
 
     return message.reply(
       `📜 ${target} has been granted **${amount} AAR points**.\n` +
@@ -882,12 +993,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= REMOVEPOINTS COMMAND =================
   if (message.content.startsWith('!removepoints')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may adjust AAR points.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may adjust AAR points.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -902,7 +1009,17 @@ client.on(Events.MessageCreate, async message => {
       return message.reply('Usage: !removepoints @user amount');
     }
 
+    const oldPoints = getUserXP(target.id);
+    const oldTrackedRank = getUserPromotion(target.id).eligibleRank || getRank(oldPoints).name;
     const newTotal = removeUserXP(target.id, amount);
+
+    await handleRankThresholdChange(
+      message.guild,
+      target,
+      oldTrackedRank,
+      oldPoints,
+      newTotal
+    );
 
     return message.reply(
       `📜 ${amount} AAR points have been removed from ${target}.\n` +
@@ -912,12 +1029,8 @@ client.on(Events.MessageCreate, async message => {
 
   // ================= SETRANK COMMAND =================
   if (message.content.startsWith('!setrank')) {
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      message.member.roles.cache.has(roleId)
-    );
-
-    if (!isHighCommand) {
-      return message.reply('⚠️ Only High Command may set ranks.');
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may set ranks.');
     }
 
     if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
@@ -951,6 +1064,7 @@ client.on(Events.MessageCreate, async message => {
 
     setEligibleRank(target.id, validTrackedRank.name);
     setOfficialRank(target.id, officialRank);
+    await syncMemberRankRole(target, validTrackedRank.name);
 
     return message.reply(
       `🛡️ ${target} now has:\n` +

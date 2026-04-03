@@ -896,6 +896,70 @@ client.on(Events.MessageCreate, async message => {
     );
   }
 
+// ================= SYNC ALL RANKS =================
+if (message.content === '!syncallranks') {
+  if (!hasCommandAuthority(message.member)) {
+    return message.reply('⚠️ Only High Command, Captains, or Lieutenants may run this command.');
+  }
+
+  if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
+    return message.reply('⚠️ This command may only be used in the High Command channel.');
+  }
+
+  await message.guild.members.fetch();
+
+  const data = {};
+  let processed = 0;
+
+  for (const member of message.guild.members.cache.values()) {
+    if (member.user.bot) continue;
+
+    let detectedRank = null;
+
+    // Detect highest rank role
+    for (const rank of rankData.slice().reverse()) {
+      const roleId = RANK_ROLE_IDS[rank.name];
+      if (roleId && member.roles.cache.has(roleId)) {
+        detectedRank = rank.name;
+        break;
+      }
+    }
+
+    // High Command override
+    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
+      member.roles.cache.has(roleId)
+    );
+
+    if (isHighCommand) {
+      data[member.id] = {
+        eligibleRank: 'High Command',
+        officialRank: 'High Command'
+      };
+      processed++;
+      continue;
+    }
+
+    if (!detectedRank) {
+      detectedRank = 'Aspirant';
+    }
+
+    data[member.id] = {
+      eligibleRank: detectedRank,
+      officialRank: detectedRank
+    };
+
+    processed++;
+  }
+
+  savePromotionData(data);
+
+  return message.reply(
+    `✅ Rank sync complete.\n` +
+    `Processed **${processed} members**.\n` +
+    `All promotion data has been rebuilt from Discord roles.`
+  );
+}
+
   // ================= PROMOTE COMMAND =================
   if (message.content.startsWith('!promote')) {
     if (!hasCommandAuthority(message.member)) {

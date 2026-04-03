@@ -153,8 +153,8 @@ const rankData = [
     minPoints: 75,
     description: 'A Fireteam Leader is a trusted brother placed in command of a smaller combat element, expected to guide his squad with discipline and clarity.',
     expectations: 'Lead your assigned brothers with steadiness, maintain order in battle, and prove your readiness for higher command through action and example.'
-},
-{
+  },
+  {
     name: 'Sergeant',
     minPoints: 80,
     description: 'A Sergeant of the Blood Angels is a seasoned Space Marine entrusted with leading a squad of Battle-Brothers, forming a vital pillar of the Chapter’s command structure.',
@@ -217,6 +217,30 @@ const promotionMessages = {
   'Captain': '👑 {user} rises to **Captain**. Command with honor and fury.',
   'High Command': '👑 {user} has been elevated to **High Command**. Authority and judgment now rest upon their word.'
 };
+
+const AUTO_PROGRESS_RANKS = [
+  'Aspirant',
+  'Neophyte',
+  'Scout',
+  'Battle Brother',
+  'Veteran'
+];
+
+const APPROVAL_RANKS = [
+  'Sergeant',
+  'Veteran Sergeant',
+  'Lieutenant',
+  'Captain'
+];
+
+const SPECIAL_APPOINTMENT_RANKS = [
+  'Company Ancient',
+  'Company Champion'
+];
+
+const progressionRankData = rankData.filter(rank =>
+  AUTO_PROGRESS_RANKS.includes(rank.name) || APPROVAL_RANKS.includes(rank.name)
+);
 
 // ================= XP SYSTEM =================
 
@@ -350,13 +374,27 @@ function storeAAR(signature, messageId) {
 // ================= RANK HELPERS =================
 
 function getRank(points) {
-  let current = rankData[0];
-  for (const rank of rankData) {
+  let current = progressionRankData[0];
+
+  for (const rank of progressionRankData) {
     if (points >= rank.minPoints) {
       current = rank;
     }
   }
+
   return current;
+}
+
+function isAutoProgressRank(rankName) {
+  return AUTO_PROGRESS_RANKS.includes(rankName);
+}
+
+function isApprovalRank(rankName) {
+  return APPROVAL_RANKS.includes(rankName);
+}
+
+function isSpecialAppointmentRank(rankName) {
+  return SPECIAL_APPOINTMENT_RANKS.includes(rankName);
 }
 
 function buildPromotionMessage(member, rank, points) {
@@ -414,31 +452,64 @@ async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoint
   if (!guild || !member) return;
 
   const newRank = getRank(newPoints);
-  const userData = getUserPromotion(member.id);
   const oldRank = getRank(oldPoints);
+  const userData = getUserPromotion(member.id);
 
   if (
-    userData.eligibleRank === 'Captain' ||
-    userData.eligibleRank === 'High Command' ||
-    userData.officialRank === 'Captain' ||
-    userData.officialRank === 'High Command'
+    userData.officialRank === 'High Command' ||
+    userData.eligibleRank === 'High Command'
   ) {
     return;
   }
 
-  if (newRank.name !== oldTrackedRank) {
-    setEligibleRank(member.id, newRank.name);
+  if (newRank.name === oldTrackedRank) {
+    return;
+  }
 
-    if (newPoints > oldPoints && newRank.minPoints > oldRank.minPoints) {
-      const highCommandChannel = guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
+  setEligibleRank(member.id, newRank.name);
 
-      if (highCommandChannel) {
-        await highCommandChannel.send(
-          `⚠️ **Promotion Review Required**\n` +
-          `Brother ${member} has reached the required AAR standing for **${newRank.name}**.\n` +
-          `Awaiting judgment and elevation by High Command.`
-        );
-      }
+  // ================= AUTO PROMOTION (UP TO VETERAN) =================
+  if (
+    isAutoProgressRank(newRank.name) &&
+    newPoints > oldPoints &&
+    newRank.minPoints > oldRank.minPoints
+  ) {
+    setOfficialRank(member.id, newRank.name);
+    await syncMemberRankRole(member, newRank.name);
+
+    try {
+      await member.send(buildPromotionMessage(member, newRank, newPoints));
+    } catch (error) {
+      console.error(`Could not DM ${member.user.tag}:`, error);
+    }
+
+    const channel = guild.channels.cache.get(GENERAL_CHANNEL_ID);
+    if (channel) {
+      const template =
+        promotionMessages[newRank.name] ||
+        '⚔️ {user} has been elevated within the Chapter.';
+      await channel.send(template.replace('{user}', `${member}`));
+    }
+
+    return;
+  }
+
+  // ================= APPROVAL REQUIRED (SERGEANT+) =================
+  if (
+    isApprovalRank(newRank.name) &&
+    newPoints > oldPoints &&
+    newRank.minPoints > oldRank.minPoints
+  ) {
+    const highCommandChannel = guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
+
+    if (highCommandChannel) {
+      await highCommandChannel.send(
+        `⚠️ **Promotion Review Required**\n` +
+        `Brother ${member} has reached the required AAR standing for **${newRank.name}**.\n` +
+        `**Official Rank:** ${userData.officialRank || oldTrackedRank}\n` +
+        `**Eligible Rank:** ${newRank.name}\n` +
+        `Awaiting judgment by High Command.`
+      );
     }
   }
 }

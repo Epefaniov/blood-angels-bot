@@ -312,23 +312,116 @@ function savePromotionData(data) {
   fs.writeFileSync(PROMOTION_FILE, JSON.stringify(data, null, 2));
 }
 
+function getDefaultPromotionRecord() {
+  return {
+    eligibleRank: null,
+    officialRank: null,
+    title: null,
+    pendingApprovalRank: null,
+    approvalStatus: null,
+    specialRoles: {
+      'Company Ancient': {
+        status: null,
+        trialAccepted: false
+      },
+      'Company Champion': {
+        status: null,
+        trialAccepted: false
+      }
+    }
+  };
+}
+
 function getUserPromotion(userId) {
   const data = loadPromotionData();
-  return data[userId] || { eligibleRank: null, officialRank: null };
+  return {
+    ...getDefaultPromotionRecord(),
+    ...(data[userId] || {}),
+    specialRoles: {
+      ...getDefaultPromotionRecord().specialRoles,
+      ...((data[userId] && data[userId].specialRoles) || {})
+    }
+  };
+}
+
+function updateUserPromotion(userId, updater) {
+  const data = loadPromotionData();
+  const current = {
+    ...getDefaultPromotionRecord(),
+    ...(data[userId] || {}),
+    specialRoles: {
+      ...getDefaultPromotionRecord().specialRoles,
+      ...((data[userId] && data[userId].specialRoles) || {})
+    }
+  };
+
+  const updated = updater(current) || current;
+  data[userId] = updated;
+  savePromotionData(data);
+  return updated;
 }
 
 function setEligibleRank(userId, rank) {
-  const data = loadPromotionData();
-  if (!data[userId]) data[userId] = {};
-  data[userId].eligibleRank = rank;
-  savePromotionData(data);
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    eligibleRank: rank
+  }));
 }
 
 function setOfficialRank(userId, rank) {
-  const data = loadPromotionData();
-  if (!data[userId]) data[userId] = {};
-  data[userId].officialRank = rank;
-  savePromotionData(data);
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    officialRank: rank
+  }));
+}
+
+function setUserTitle(userId, title) {
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    title: title || null
+  }));
+}
+
+function setApprovalState(userId, pendingApprovalRank, approvalStatus) {
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    pendingApprovalRank,
+    approvalStatus
+  }));
+}
+
+function clearApprovalState(userId) {
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    pendingApprovalRank: null,
+    approvalStatus: null
+  }));
+}
+
+function setSpecialRoleState(userId, roleName, status, trialAccepted = false) {
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    specialRoles: {
+      ...current.specialRoles,
+      [roleName]: {
+        status,
+        trialAccepted
+      }
+    }
+  }));
+}
+
+function setSpecialRoleTrialResponse(userId, roleName, trialAccepted) {
+  return updateUserPromotion(userId, current => ({
+    ...current,
+    specialRoles: {
+      ...current.specialRoles,
+      [roleName]: {
+        ...(current.specialRoles[roleName] || { status: null, trialAccepted: false }),
+        trialAccepted
+      }
+    }
+  }));
 }
 
 // ================= AAR LOG =================
@@ -395,6 +488,27 @@ function isApprovalRank(rankName) {
 
 function isSpecialAppointmentRank(rankName) {
   return SPECIAL_APPOINTMENT_RANKS.includes(rankName);
+}
+
+function getHighestManagedRankFromMember(member) {
+  const orderedDetectableRanks = [
+    'Veteran Sergeant',
+    'Sergeant',
+    'Veteran',
+    'Battle Brother',
+    'Scout',
+    'Neophyte',
+    'Aspirant'
+  ];
+
+  for (const rankName of orderedDetectableRanks) {
+    const roleId = RANK_ROLE_IDS[rankName];
+    if (roleId && member.roles.cache.has(roleId)) {
+      return rankName;
+    }
+  }
+
+  return null;
 }
 
 function buildPromotionMessage(member, rank, points) {
@@ -475,6 +589,7 @@ async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoint
     newRank.minPoints > oldRank.minPoints
   ) {
     setOfficialRank(member.id, newRank.name);
+    clearApprovalState(member.id);
     await syncMemberRankRole(member, newRank.name);
 
     try {
@@ -500,6 +615,8 @@ async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoint
     newPoints > oldPoints &&
     newRank.minPoints > oldRank.minPoints
   ) {
+    setApprovalState(member.id, newRank.name, 'pending');
+
     const highCommandChannel = guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
 
     if (highCommandChannel) {
@@ -508,6 +625,7 @@ async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoint
         `Brother ${member} has reached the required AAR standing for **${newRank.name}**.\n` +
         `**Official Rank:** ${userData.officialRank || oldTrackedRank}\n` +
         `**Eligible Rank:** ${newRank.name}\n` +
+        `**Approval Status:** Pending\n` +
         `Awaiting judgment by High Command.`
       );
     }
@@ -750,6 +868,10 @@ client.on(Events.MessageCreate, async message => {
       '`!thirst` - Blood Angels lore\n' +
       '`!profile` - View your service record\n' +
       '`!points` - View your AAR points\n' +
+      '`!syncallranks` - Rebuild promotion data from Discord roles\n' +
+      '`!approve @user` - Approve pending promotion\n' +
+      '`!deny @user` - Deny pending promotion\n' +
+      '`!settitle @user title` - Set custom title\n' +
       '`!promote @user rank` - Promote (High Command / Captain / Lieutenant)\n' +
       '`!demote @user rank` - Demote (High Command / Captain / Lieutenant)\n' +
       '`!setpoints @user amount` - Set AAR points (Command authority)\n' +
@@ -829,13 +951,19 @@ client.on(Events.MessageCreate, async message => {
 
     const officialRank = promoData.officialRank || 'Not yet recorded';
     const trackedRank = promoData.eligibleRank || eligibleRank.name;
+    const title = promoData.title || 'None';
+    const pendingApprovalRank = promoData.pendingApprovalRank || 'None';
+    const approvalStatus = promoData.approvalStatus || 'None';
 
     return message.reply(
       `⚙️ **Service Record for ${message.author.username}** ⚙️\n` +
       `**Ranks / Roles:** ${roles}\n` +
       `**AAR Points:** ${points}\n` +
       `**Official Rank:** ${officialRank}\n` +
-      `**Tracked Standing:** ${trackedRank}`
+      `**Tracked Standing:** ${trackedRank}\n` +
+      `**Title:** ${title}\n` +
+      `**Pending Approval:** ${pendingApprovalRank}\n` +
+      `**Approval Status:** ${approvalStatus}`
     );
   }
 
@@ -846,7 +974,7 @@ client.on(Events.MessageCreate, async message => {
   ) {
     const creditedMembers = getCreditedMembers(message);
 
-    if (creditedMembers.length < 2) {
+    if (creditedMembers.length < 1) {
       return message.reply(
         '⚠️ A valid AAR must tag at least one participating brother so the Machine Spirit may record the deeds of the squad.'
       );
@@ -896,69 +1024,192 @@ client.on(Events.MessageCreate, async message => {
     );
   }
 
-// ================= SYNC ALL RANKS =================
-if (message.content === '!syncallranks') {
-  if (!hasCommandAuthority(message.member)) {
-    return message.reply('⚠️ Only High Command, Captains, or Lieutenants may run this command.');
+  // ================= SYNC ALL RANKS =================
+  if (message.content === '!syncallranks') {
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may run this command.');
+    }
+
+    if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
+      return message.reply('⚠️ This command may only be used in the High Command channel.');
+    }
+
+    await message.guild.members.fetch();
+
+    const existingData = loadPromotionData();
+    const rebuiltData = {};
+    let processed = 0;
+
+    for (const member of message.guild.members.cache.values()) {
+      if (member.user.bot) continue;
+
+      const existing = {
+        ...getDefaultPromotionRecord(),
+        ...(existingData[member.id] || {}),
+        specialRoles: {
+          ...getDefaultPromotionRecord().specialRoles,
+          ...((existingData[member.id] && existingData[member.id].specialRoles) || {})
+        }
+      };
+
+      const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
+        member.roles.cache.has(roleId)
+      );
+
+      if (isHighCommand) {
+        rebuiltData[member.id] = {
+          ...existing,
+          eligibleRank: 'High Command',
+          officialRank: 'High Command',
+          pendingApprovalRank: null,
+          approvalStatus: null
+        };
+        processed++;
+        continue;
+      }
+
+      let detectedRank = getHighestManagedRankFromMember(member);
+
+      if (!detectedRank) {
+        detectedRank = 'Aspirant';
+      }
+
+      rebuiltData[member.id] = {
+        ...existing,
+        eligibleRank: detectedRank,
+        officialRank: detectedRank,
+        pendingApprovalRank: null,
+        approvalStatus: null
+      };
+
+      processed++;
+    }
+
+    savePromotionData(rebuiltData);
+
+    return message.reply(
+      `✅ Rank sync complete.\n` +
+      `Processed **${processed} members**.\n` +
+      `Promotion data has been rebuilt from Discord roles.`
+    );
   }
 
-  if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
-    return message.reply('⚠️ This command may only be used in the High Command channel.');
-  }
+  // ================= APPROVE COMMAND =================
+  if (message.content.startsWith('!approve')) {
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may approve promotions.');
+    }
 
-  await message.guild.members.fetch();
+    if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
+      return message.reply('⚠️ Approvals may only be issued in the High Command channel.');
+    }
 
-  const data = {};
-  let processed = 0;
+    const target = message.mentions.members.first();
 
-  for (const member of message.guild.members.cache.values()) {
-    if (member.user.bot) continue;
+    if (!target) {
+      return message.reply('Usage: !approve @user');
+    }
 
-    let detectedRank = null;
+    const promoData = getUserPromotion(target.id);
+    const pendingRank = promoData.pendingApprovalRank;
 
-    // Detect highest rank role
-    for (const rank of rankData.slice().reverse()) {
-      const roleId = RANK_ROLE_IDS[rank.name];
-      if (roleId && member.roles.cache.has(roleId)) {
-        detectedRank = rank.name;
-        break;
+    if (!pendingRank) {
+      return message.reply(`⚠️ ${target} has no pending approval rank.`);
+    }
+
+    setOfficialRank(target.id, pendingRank);
+    clearApprovalState(target.id);
+    await syncMemberRankRole(target, pendingRank);
+
+    const points = getUserXP(target.id);
+    const rank = rankData.find(r => r.name === pendingRank);
+
+    if (rank) {
+      try {
+        await target.send(buildPromotionMessage(target, rank, points));
+      } catch {
+        await message.reply(`⚠️ Could not DM ${target.user.username}.`);
       }
     }
 
-    // High Command override
-    const isHighCommand = HIGH_COMMAND_ROLE_IDS.some(roleId =>
-      member.roles.cache.has(roleId)
-    );
-
-    if (isHighCommand) {
-      data[member.id] = {
-        eligibleRank: 'High Command',
-        officialRank: 'High Command'
-      };
-      processed++;
-      continue;
+    const channel = message.guild.channels.cache.get(GENERAL_CHANNEL_ID);
+    if (channel) {
+      const template =
+        promotionMessages[pendingRank] ||
+        '⚔️ {user} has been elevated within the Chapter.';
+      await channel.send(template.replace('{user}', `${target}`));
     }
 
-    if (!detectedRank) {
-      detectedRank = 'Aspirant';
-    }
-
-    data[member.id] = {
-      eligibleRank: detectedRank,
-      officialRank: detectedRank
-    };
-
-    processed++;
+    return message.reply(`✅ ${target} has been approved for **${pendingRank}**.`);
   }
 
-  savePromotionData(data);
+  // ================= DENY COMMAND =================
+  if (message.content.startsWith('!deny')) {
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may deny promotions.');
+    }
 
-  return message.reply(
-    `✅ Rank sync complete.\n` +
-    `Processed **${processed} members**.\n` +
-    `All promotion data has been rebuilt from Discord roles.`
-  );
-}
+    if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
+      return message.reply('⚠️ Denials may only be issued in the High Command channel.');
+    }
+
+    const target = message.mentions.members.first();
+
+    if (!target) {
+      return message.reply('Usage: !deny @user');
+    }
+
+    const promoData = getUserPromotion(target.id);
+    const pendingRank = promoData.pendingApprovalRank;
+
+    if (!pendingRank) {
+      return message.reply(`⚠️ ${target} has no pending approval rank.`);
+    }
+
+    setApprovalState(target.id, null, 'denied');
+
+    try {
+      await target.send(
+        `⚠️ **The Machine Spirit records a denied elevation...**\n\n` +
+        `Your advancement to **${pendingRank}** has been denied at this time.\n` +
+        `You remain eligible to continue earning AAR points and may be reviewed again in the future.`
+      );
+    } catch {
+      await message.reply(`⚠️ Could not DM ${target.user.username}.`);
+    }
+
+    return message.reply(
+      `⚠️ ${target} has been denied approval for **${pendingRank}**.\n` +
+      `Their progression remains active.`
+    );
+  }
+
+  // ================= SETTITLE COMMAND =================
+  if (message.content.startsWith('!settitle')) {
+    if (!hasCommandAuthority(message.member)) {
+      return message.reply('⚠️ Only High Command, Captains, or Lieutenants may set titles.');
+    }
+
+    if (message.channel.id !== HIGH_COMMAND_CHANNEL_ID) {
+      return message.reply('⚠️ Title adjustments may only be issued in the High Command channel.');
+    }
+
+    const target = message.mentions.members.first();
+
+    if (!target) {
+      return message.reply('Usage: !settitle @user TitleName');
+    }
+
+    const raw = message.content.replace('!settitle', '').trim();
+    const withoutMention = raw.replace(/<@!?\d+>/, '').trim();
+    const title = withoutMention || null;
+
+    setUserTitle(target.id, title);
+
+    return message.reply(
+      `🏛️ ${target} now has the title: **${title || 'None'}**`
+    );
+  }
 
   // ================= PROMOTE COMMAND =================
   if (message.content.startsWith('!promote')) {
@@ -986,6 +1237,7 @@ if (message.content === '!syncallranks') {
 
     setEligibleRank(target.id, rank.name);
     setOfficialRank(target.id, rank.name);
+    clearApprovalState(target.id);
     await syncMemberRankRole(target, rank.name);
 
     const points = getUserXP(target.id);
@@ -1033,6 +1285,7 @@ if (message.content === '!syncallranks') {
 
     setEligibleRank(target.id, rank.name);
     setOfficialRank(target.id, rank.name);
+    clearApprovalState(target.id);
     await syncMemberRankRole(target, rank.name);
 
     try {
@@ -1199,6 +1452,7 @@ if (message.content === '!syncallranks') {
 
     setEligibleRank(target.id, validTrackedRank.name);
     setOfficialRank(target.id, officialRank);
+    clearApprovalState(target.id);
     await syncMemberRankRole(target, validTrackedRank.name);
 
     return message.reply(

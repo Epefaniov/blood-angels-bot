@@ -4,7 +4,8 @@ const {
   Events,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  EmbedBuilder
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +22,7 @@ const client = new Client({
 const XP_FILE = path.join(__dirname, 'xp.json');
 const PROMOTION_FILE = path.join(__dirname, 'promotions.json');
 const AAR_LOG_FILE = path.join(__dirname, 'aar_log.json');
+const pendingSpecialtyApplications = new Set();
 
 // CHANNEL IDS
 const AAR_CHANNEL_ID = '1347217909134528560';
@@ -94,6 +96,59 @@ const RANK_ROLE_IDS = {
   'Sergeant': '1348503838184968304',
   'Veteran Sergeant': '1441287705467027466'
 };
+
+const SPECIALTY_CONFIG = {
+  channelId: '1494724572136607865',
+  logChannelId: '1494725171033014273',
+  highCommandRoleId: HIGH_COMMAND_ROLE_IDS[0],
+  pendingRoleId: null,
+
+  eligibleRankIds: [
+    RANK_ROLE_IDS['Sergeant'],
+    RANK_ROLE_IDS['Veteran Sergeant']
+  ],
+
+  specialties: [
+    {
+      key: 'librarius',
+      label: 'Librarius',
+      buttonId: 'spec_librarius',
+      ranks: {
+        entry: '1441283273660829756',
+        advanced: '1350943054143684710'
+      }
+    },
+    {
+      key: 'reclusiam',
+      label: 'Reclusiam',
+      buttonId: 'spec_reclusiam',
+      ranks: {
+        entry: '1348036588067880981',
+        mid: '1350945824158515220',
+        top: '1441283782530433045'
+      }
+    },
+    {
+      key: 'sanguinary',
+      label: 'Sanguinary Priesthood',
+      buttonId: 'spec_sanguinary',
+      ranks: {
+        entry: '1441283039916199977',
+        advanced: '1441282782532997335'
+      }
+    },
+    {
+      key: 'armoury',
+      label: 'Armoury',
+      buttonId: 'spec_armoury',
+      ranks: {
+        entry: '1441283774619844638',
+        advanced: '1347217906852696090'
+      }
+    }
+  ]
+};
+
 
 // ENVOY
 const ENVOY_ROLE_ID = '1347217906873794665';
@@ -738,6 +793,39 @@ function buildDisabledRowsFromMessage(message) {
   });
 }
 
+function buildBasicHelpRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('help_general')
+      .setLabel('General')
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId('help_progression')
+      .setLabel('Progression')
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId('help_specialty')
+      .setLabel('Specialty')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
+function buildAdminHelpRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('help_admin')
+      .setLabel('Command Tools')
+      .setStyle(ButtonStyle.Danger),
+
+    new ButtonBuilder()
+      .setCustomId('help_trials')
+      .setLabel('Trial Tools')
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
 // ================= TRIAL / TITLE HELPERS =================
 
 function parseYesNo(value) {
@@ -1336,6 +1424,34 @@ function getAARData(message) {
   };
 }
 
+function isEligibleForSpecialty(member) {
+  return member.roles.cache.some(role =>
+    SPECIALTY_CONFIG.eligibleRankIds.includes(role.id)
+  );
+}
+
+function getCurrentSpecialty(member) {
+  return SPECIALTY_CONFIG.specialties.find(spec =>
+    Object.values(spec.ranks).some(roleId =>
+      member.roles.cache.has(roleId)
+    )
+  );
+}
+
+async function removeAllSpecialtyRoles(member) {
+  const allRoles = SPECIALTY_CONFIG.specialties.flatMap(spec =>
+    Object.values(spec.ranks)
+  );
+
+  const rolesToRemove = allRoles.filter(roleId =>
+    member.roles.cache.has(roleId)
+  );
+
+  if (rolesToRemove.length > 0) {
+    await member.roles.remove(rolesToRemove);
+  }
+}
+
 // ================= AAR TEAM CREDIT =================
 
 function getCreditedMembers(message) {
@@ -1396,6 +1512,283 @@ client.on(Events.GuildMemberAdd, member => {
 
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
+
+// ================= SPECIALTY APPLICATION SYSTEM =================
+const specialty = SPECIALTY_CONFIG.specialties.find(
+  spec => spec.buttonId === interaction.customId
+);
+
+if (specialty) {
+  const member = interaction.member;
+  const guild = interaction.guild;
+
+  try {
+    if (!isEligibleForSpecialty(member)) {
+      return interaction.reply({
+        content: '⚠️ Request denied. Only Sergeants and above may apply for these roles.',
+        ephemeral: true
+      });
+    }
+
+    const current = getCurrentSpecialty(member);
+    if (current) {
+      return interaction.reply({
+        content: `⚠️ You already belong to **${current.label}**.`,
+        ephemeral: true
+      });
+    }
+
+    if (pendingSpecialtyApplications.has(member.id)) {
+      return interaction.reply({
+        content: '⚠️ You already have a pending application.',
+        ephemeral: true
+      });
+    }
+
+    pendingSpecialtyApplications.add(member.id);
+
+    const logChannel = guild.channels.cache.get(SPECIALTY_CONFIG.logChannelId);
+
+    if (logChannel) {
+      const reviewRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`specapprove:${member.id}:${specialty.key}`)
+          .setLabel('Approve')
+          .setStyle(ButtonStyle.Success),
+
+        new ButtonBuilder()
+          .setCustomId(`specdeny:${member.id}:${specialty.key}`)
+          .setLabel('Deny')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await logChannel.send({
+        content:
+          `📡 <@&${SPECIALTY_CONFIG.highCommandRoleId}> ${member} applied for **${specialty.label}**.\n` +
+          `Review and render judgment below.`,
+        components: [reviewRow]
+      });
+    }
+
+    return interaction.reply({
+      content: `✅ Application for **${specialty.label}** submitted.`,
+      ephemeral: true
+    });
+
+  } catch (err) {
+    console.error('Specialty Error:', err);
+
+    return interaction.reply({
+      content: '⚠️ Machine Spirit error.',
+      ephemeral: true
+    });
+  }
+}
+
+// ================= SPECIALTY REVIEW SYSTEM =================
+if (
+  interaction.customId.startsWith('specapprove:') ||
+  interaction.customId.startsWith('specdeny:')
+) {
+  if (!interaction.guild || !interaction.member) {
+    return interaction.reply({
+      content: '⚠️ This action may only be used inside the guild.',
+      ephemeral: true
+    });
+  }
+
+  if (!hasCommandAuthority(interaction.member)) {
+    return interaction.reply({
+      content: '⚠️ Only High Command, Captains, or Lieutenants may review specialty applications.',
+      ephemeral: true
+    });
+  }
+
+  const [action, targetUserId, specialtyKey] = interaction.customId.split(':');
+  const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+
+  if (!targetMember) {
+    return interaction.reply({
+      content: '⚠️ Could not find that brother in the server.',
+      ephemeral: true
+    });
+  }
+
+  const specialty = SPECIALTY_CONFIG.specialties.find(spec => spec.key === specialtyKey);
+
+  if (!specialty) {
+    return interaction.reply({
+      content: '⚠️ Invalid specialty key.',
+      ephemeral: true
+    });
+  }
+
+  const disabledRows = buildDisabledRowsFromMessage(interaction.message);
+
+  if (action === 'specapprove') {
+    await removeAllSpecialtyRoles(targetMember);
+    await targetMember.roles.add(specialty.ranks.entry);
+    pendingSpecialtyApplications.delete(targetMember.id);
+
+    try {
+      await targetMember.send(
+        `✅ **High Command has rendered judgment.**\n\n` +
+        `Your application for **${specialty.label}** has been **approved**.\n` +
+        `You have been admitted at the entry rank of that path.`
+      );
+    } catch (error) {
+      console.error(`Could not DM ${targetMember.user.tag}:`, error);
+    }
+
+    await interaction.update({
+      content:
+        `✅ **Specialty Approved**\n` +
+        `Brother <@${targetUserId}> has been approved for **${specialty.label}**.\n` +
+        `Assigned Entry Rank: ${specialty.label}\n` +
+        `Reviewed by ${interaction.user}.`,
+      components: disabledRows
+    });
+
+    return;
+  }
+
+  if (action === 'specdeny') {
+    pendingSpecialtyApplications.delete(targetMember.id);
+
+    try {
+      await targetMember.send(
+        `⚠️ **High Command has rendered judgment.**\n\n` +
+        `Your application for **${specialty.label}** has been **denied** at this time.\n` +
+        `Continue your service and stand ready for future review.`
+      );
+    } catch (error) {
+      console.error(`Could not DM ${targetMember.user.tag}:`, error);
+    }
+
+    await interaction.update({
+      content:
+        `⚠️ **Specialty Denied**\n` +
+        `Brother <@${targetUserId}> has been denied for **${specialty.label}**.\n` +
+        `Reviewed by ${interaction.user}.`,
+      components: disabledRows
+    });
+
+    return;
+  }
+}
+
+// ================= HELP BUTTON HUB =================
+if (interaction.customId.startsWith('help_')) {
+  let embed;
+
+  if (interaction.customId === 'help_general') {
+    embed = new EmbedBuilder()
+      .setTitle('⚙️ General Guidance')
+      .setDescription(
+        '`!uniform` - Uniform standards\n' +
+        '`!aar` - How to post an AAR\n' +
+        '`!ranks` - Rank structure and progression\n' +
+        '`!thirst` - Blood Angels lore\n' +
+        '`!profile` - View your service record\n' +
+        '`!points` - View your AAR points'
+      );
+
+    return interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.customId === 'help_progression') {
+    embed = new EmbedBuilder()
+      .setTitle('🩸 Progression Guidance')
+      .setDescription(
+        '`!progression` - View your progression-path record\n\n' +
+        'Brothers advance through AAR points, command review, and trial systems.\n' +
+        'Higher paths and command roles require judgment by High Command.'
+      );
+
+    return interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.customId === 'help_specialty') {
+    embed = new EmbedBuilder()
+      .setTitle('⚔️ Specialty Guidance')
+      .setDescription(
+        'Specialty applications are submitted through the specialty panel.\n\n' +
+        '**Requirements:**\n' +
+        'Only **Sergeants and above** may apply.\n\n' +
+        '**Available Paths:**\n' +
+        '• Librarius\n' +
+        '• Reclusiam\n' +
+        '• Sanguinary Priesthood\n' +
+        '• Armoury'
+      );
+
+    return interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.customId === 'help_admin') {
+    if (!hasCommandAuthority(interaction.member)) {
+      return interaction.reply({
+        content: '⚠️ Command access required.',
+        ephemeral: true
+      });
+    }
+
+    embed = new EmbedBuilder()
+      .setTitle('🛡️ Command Tools')
+      .setDescription(
+        '`!syncallranks` - Rebuild promotion data from Discord roles\n' +
+        '`!approve @user` - Approve pending promotion\n' +
+        '`!deny @user` - Deny pending promotion\n' +
+        '`!settitle @user title` - Set custom title\n' +
+        '`!promote @user rank` - Promote\n' +
+        '`!demote @user rank` - Demote\n' +
+        '`!setpoints @user amount` - Set AAR points\n' +
+        '`!addpoints @user amount` - Add AAR points\n' +
+        '`!removepoints @user amount` - Remove AAR points\n' +
+        '`!setrank @user trackedRank | officialRank` - Set tracked + display rank\n' +
+        '`!resetprogression @user` - Reset progression-path state\n' +
+        '`!sendpathprompt @user` - Send progression path prompt manually\n' +
+        '`!specialtypanel` - Deploy specialty application panel'
+      );
+
+    return interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.customId === 'help_trials') {
+    if (!hasCommandAuthority(interaction.member)) {
+      return interaction.reply({
+        content: '⚠️ Command access required.',
+        ephemeral: true
+      });
+    }
+
+    embed = new EmbedBuilder()
+      .setTitle('⚔️ Trial Tools')
+      .setDescription(
+        '`!fireteamreview @user` - Send Fireteam reassessment prompt\n' +
+        '`!sergeantreview @user` - Send Sergeant readiness review buttons\n' +
+        '`!championreport @user | overseer rank | class | mode | difficulty | wave | extracted yes/no | extremis kills | success/fail`\n' +
+        '`!ancientreport @user | operation | overseer rank | class | difficulty | squad1,squad2,squad3 | noDowns yes/no | geneSeed yes/no | armouryData yes/no | success/fail`'
+      );
+
+    return interaction.reply({
+      embeds: [embed],
+      ephemeral: true
+    });
+  }
+}
 
   // ================= USER PATH SELECTION =================
   if (interaction.customId.startsWith('pathselect:')) {
@@ -2212,35 +2605,26 @@ client.on(Events.MessageCreate, async message => {
     return message.reply(randomLore);
   }
 
-  if (message.content === '!help') {
-    return message.reply(
-      '⚙️ **Machine Spirit Guidance Menu** ⚙️\n' +
-      '`!uniform` - Uniform standards\n' +
-      '`!aar` - How to post an AAR\n' +
-      '`!ranks` - Rank structure and progression\n' +
-      '`!thirst` - Blood Angels lore\n' +
-      '`!profile` - View your service record\n' +
-      '`!points` - View your AAR points\n' +
-      '`!progression` - View your progression-path record\n' +
-      '`!syncallranks` - Rebuild promotion data from Discord roles\n' +
-      '`!approve @user` - Approve pending promotion\n' +
-      '`!deny @user` - Deny pending promotion\n' +
-      '`!settitle @user title` - Set custom title\n' +
-      '`!promote @user rank` - Promote (High Command / Captain / Lieutenant)\n' +
-      '`!demote @user rank` - Demote (High Command / Captain / Lieutenant)\n' +
-      '`!setpoints @user amount` - Set AAR points (Command authority)\n' +
-      '`!addpoints @user amount` - Add AAR points (Command authority)\n' +
-      '`!removepoints @user amount` - Remove AAR points (Command authority)\n' +
-      '`!setrank @user trackedRank | officialRank` - Set tracked + display rank (Command authority)\n' +
-      '`!resetprogression @user` - Reset progression-path state (Command authority)\n' +
-      '`!sendpathprompt @user` - Send the progression path prompt manually (Command authority)\n' +
-      '`!fireteamreview @user` - Send Fireteam reassessment prompt (Command authority)\n' +
-      '`!sergeantreview @user` - Send Sergeant readiness review buttons (Command authority)\n' +
-      '`!championreport @user | overseer rank | class | mode | difficulty | wave | extracted yes/no | extremis kills | success/fail`\n' +
-      '`!ancientreport @user | operation | overseer rank | class | difficulty | squad1,squad2,squad3 | noDowns yes/no | geneSeed yes/no | armouryData yes/no | success/fail`'
+if (message.content === '!help') {
+  const embed = new EmbedBuilder()
+    .setTitle('⚙️ Machine Spirit Guidance Menu')
+    .setDescription(
+      'Select a category below to view available functions.\n\n' +
+      'Basic guidance is available to all brothers.\n' +
+      'Command functions are restricted to authorized officers.'
     );
+
+  const rows = [buildBasicHelpRow()];
+
+  if (hasCommandAuthority(message.member)) {
+    rows.push(buildAdminHelpRow());
   }
 
+  return message.reply({
+    embeds: [embed],
+    components: rows
+  });
+}
   if (message.content === '!uniform') {
     return message.reply(
       '🩸 **Uniform Guidance**\n' +
@@ -3268,7 +3652,7 @@ if (
     );
   }
 
-  if (message.content.startsWith('!sendpathprompt')) {
+   if (message.content.startsWith('!sendpathprompt')) {
     if (!hasCommandAuthority(message.member)) {
       return message.reply('⚠️ Only High Command, Captains, or Lieutenants may send path prompts.');
     }
@@ -3291,6 +3675,42 @@ if (
       `✅ Fireteam progression path prompt has been sent to ${target}.`
     );
   }
+
+if (message.content === '!specialtypanel') {
+  if (!hasCommandAuthority(message.member)) {
+    return message.reply('⚠️ High Command only.');
+  }
+
+  if (message.channel.id !== SPECIALTY_CONFIG.channelId) {
+    return message.reply('⚠️ This panel may only be deployed in the specialty channel.');
+  }
+
+  const row = new ActionRowBuilder().addComponents(
+    SPECIALTY_CONFIG.specialties.map(spec =>
+      new ButtonBuilder()
+        .setCustomId(spec.buttonId)
+        .setLabel(spec.label)
+        .setStyle(ButtonStyle.Primary)
+    )
+  );
+
+  const panelMessage = await message.channel.send({
+    content:
+      '**⚔️ Select Your Specialty Path ⚔️**\n\n' +
+      'Only **Sergeants and above** may apply.\n' +
+      'All applications are reviewed by High Command.',
+    components: [row]
+  });
+
+  try {
+    await panelMessage.pin();
+  } catch (err) {
+    console.error('Failed to pin specialty panel:', err);
+  }
+
+  return message.reply('✅ Specialty panel deployed and pinned.');
+}
+
 });
 
 client.login(process.env.TOKEN);

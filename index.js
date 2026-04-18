@@ -332,6 +332,144 @@ const progressionRankData = rankData.filter(rank =>
   rank.name === 'Fireteam Leader'
 );
 
+// ================= ARMORY SHOP DATA =================
+const ARMORY_CHANNEL_ID = '1495062722599977100';
+const FORGE_CHANNEL_ID = '1495062873079021790';
+const BLOOD_ANGELS_ROLE_ID = '1459548608021008508';
+
+const armoryDropMessages = [
+  'A new pattern has been sanctified. The Machine Spirit endures. Secure it while stock remains.',
+  'The forge has completed its rite. The Machine Spirit awakens. Claim it before depletion.',
+  'A sacred construct has been bound to steel. Requisition is now authorized.',
+  'The forge burns eternal. A new instrument of war stands ready for acquisition.',
+  'By the Omnissiah’s will, a relic has been forged. Only the worthy shall claim it.'
+];
+
+function getRandomArmoryDropMessage() {
+  return armoryDropMessages[Math.floor(Math.random() * armoryDropMessages.length)];
+}
+
+const ARMORY_CATEGORIES = [
+  'Helmet',
+  'Chest',
+  'Shoulder',
+  'Arms',
+  'Legs',
+  'Backpack',
+  'Cosmetic',
+  'Special Issue'
+];
+
+const armorySubmissionCache = new Map();
+const armoryInventory = new Map();
+let armoryItemCounter = 1;
+
+function generateArmoryItemId() {
+  return `armory_${String(armoryItemCounter++).padStart(3, '0')}`;
+}
+
+function isArmoryManager(member) {
+  return hasCommandAuthority(member) || Boolean(getCurrentSpecialty(member)?.key === 'armoury');
+}
+
+function getArmorySubmission(userId) {
+  return armorySubmissionCache.get(userId) || null;
+}
+
+function clearArmorySubmission(userId) {
+  armorySubmissionCache.delete(userId);
+}
+
+function createArmorySubmission(userId) {
+  const submission = {
+    submittedBy: userId,
+    imageUrl: '',
+    itemName: '',
+    category: '',
+    price: 0,
+    stock: 1,
+    step: 'awaiting_image',
+    createdAt: Date.now()
+  };
+
+  armorySubmissionCache.set(userId, submission);
+  return submission;
+}
+
+function saveArmoryItem(submission, approvedBy) {
+  const itemId = generateArmoryItemId();
+
+  const item = {
+    itemId,
+    itemName: submission.itemName,
+    category: submission.category,
+    price: submission.price,
+    stock: submission.stock,
+    imageUrl: submission.imageUrl,
+    submittedBy: submission.submittedBy,
+    approvedBy,
+    active: true,
+    shopMessageId: null,
+    createdAt: Date.now()
+  };
+
+  armoryInventory.set(itemId, item);
+  return item;
+}
+
+function buildArmoryReviewEmbed(submission, member) {
+  return new EmbedBuilder()
+    .setTitle('⚙️ Armory Item Review')
+    .setDescription(
+      `**Name:** ${submission.itemName || 'Not set'}\n` +
+      `**Category:** ${submission.category || 'Not set'}\n` +
+      `**Price:** ${submission.price || 0} Armory Data\n` +
+      `**Stock:** ${submission.stock || 0}\n` +
+      `**Submitted By:** ${member}`
+    )
+    .setImage(submission.imageUrl || null);
+}
+
+function buildArmoryShopEmbed(item) {
+  return new EmbedBuilder()
+    .setTitle(`⚔️ ${item.itemName}`)
+    .setDescription(
+      `**Category:** ${item.category}\n` +
+      `**Price:** ${item.price} Armory Data\n` +
+      `**Stock Remaining:** ${item.stock}\n` +
+      `**Item ID:** ${item.itemId}`
+    )
+    .setImage(item.imageUrl || null);
+}
+
+function buildArmoryReviewRow(userId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`armory_approve:${userId}`)
+      .setLabel('Approve')
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId(`armory_cancel:${userId}`)
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Danger)
+  );
+}
+
+function buildArmoryShopRow(itemId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`armory_buy:${itemId}`)
+      .setLabel('Purchase')
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId(`armory_balance:${itemId}`)
+      .setLabel('View Balance')
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
 // ================= XP SYSTEM =================
 
 function loadXP() {
@@ -942,10 +1080,10 @@ async function notifyChampionTitleResolution(guild, member) {
     });
   }
 
-  updateUserPromotion(member.id, current => ({
-    ...current,
-    trialData: {
-      ...current.trialData,
+updateUserPromotion(member.id, current => ({
+  ...current,
+  trialData: {
+    ...current.trialData,
       champion: {
         ...current.trialData.champion,
         challengerStatus: 'pending',
@@ -1513,6 +1651,229 @@ client.on(Events.GuildMemberAdd, member => {
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
 
+// ================= ARMORY SHOP SYSTEM =================
+if (interaction.customId === 'armory_add_item') {
+  if (!isArmoryManager(interaction.member)) {
+    return interaction.reply({
+      content: '⚠️ Only Techmarines, High Command, Captains, or Lieutenants may forge armory items.',
+      ephemeral: true
+    });
+  }
+
+  const existing = getArmorySubmission(interaction.user.id);
+  if (existing) {
+    return interaction.reply({
+      content: '⚠️ You already have an active armory submission in progress.',
+      ephemeral: true
+    });
+  }
+
+  createArmorySubmission(interaction.user.id);
+
+  return interaction.reply({
+    content:
+      '⚙️ **Armory creation initiated.**\n\n' +
+      'Upload the image of the armor piece in this channel. Once the image is received, the Machine Spirit will continue the forge process.',
+    ephemeral: true
+  });
+}
+
+// ================= ARMORY REVIEW SYSTEM =================
+if (
+  interaction.customId.startsWith('armory_approve:') ||
+  interaction.customId.startsWith('armory_cancel:')
+) {
+  const parts = interaction.customId.split(':');
+
+  if (parts.length < 2) {
+    return interaction.reply({
+      content: '⚠️ Invalid armory interaction.',
+      ephemeral: true
+    });
+  }
+
+  if (!isArmoryManager(interaction.member)) {
+    return interaction.reply({
+      content: '⚠️ Only authorized forge staff may review armory items.',
+      ephemeral: true
+    });
+  }
+
+  const [action, targetUserId] = parts;
+  const submission = getArmorySubmission(targetUserId);
+
+  if (!submission) {
+    return interaction.reply({
+      content: '⚠️ That armory submission no longer exists or has already been processed.',
+      ephemeral: true
+    });
+  }
+
+  const disabledRows = buildDisabledRowsFromMessage(interaction.message);
+
+  if (action === 'armory_cancel') {
+    clearArmorySubmission(targetUserId);
+
+    await interaction.update({
+      content:
+        `⚠️ **Armory Submission Cancelled**\n` +
+        `The item submission for <@${targetUserId}> has been cancelled by ${interaction.user}.`,
+      embeds: [],
+      components: disabledRows
+    });
+
+    return;
+  }
+
+  if (action === 'armory_approve') {
+    const item = saveArmoryItem(submission, interaction.user.id);
+    clearArmorySubmission(targetUserId);
+
+    const armoryChannel = interaction.guild.channels.cache.get(ARMORY_CHANNEL_ID);
+    let shopMessage = null;
+
+    const dropMessage = getRandomArmoryDropMessage();
+
+    if (armoryChannel) {
+      shopMessage = await armoryChannel.send({
+        content:
+          `<@&${BLOOD_ANGELS_ROLE_ID}>\n` +
+          `⚔️ **New Armory Stock Available!**\n` +
+          `${dropMessage}`,
+        embeds: [buildArmoryShopEmbed(item)],
+        components: [buildArmoryShopRow(item.itemId)],
+        allowedMentions: {
+          roles: [BLOOD_ANGELS_ROLE_ID]
+        }
+      });
+
+      item.shopMessageId = shopMessage.id;
+      armoryInventory.set(item.itemId, item);
+    }
+
+    const forgeChannel = interaction.guild.channels.cache.get(FORGE_CHANNEL_ID);
+    if (forgeChannel) {
+      await forgeChannel.send(
+        `⚙️ **Armory Item Approved**\n` +
+        `**Item:** ${item.itemName}\n` +
+        `**Category:** ${item.category}\n` +
+        `**Price:** ${item.price} Armory Data\n` +
+        `**Stock:** ${item.stock}\n` +
+        `**Approved By:** ${interaction.user}`
+      );
+    }
+
+    await interaction.update({
+      content:
+        `⚙️ **Praise the Omnissiah, This Machine Spirit is satisfied.**\n\n` +
+        `🔥 **Forge Complete**\n` +
+        `The item **${item.itemName}** has been sanctified and entered into the armory by ${interaction.user}.`,
+      embeds: [buildArmoryReviewEmbed(submission, `<@${targetUserId}>`)],
+      components: disabledRows
+    });
+
+    return;
+  }
+}
+
+// ================= ARMORY PURCHASE SYSTEM =================
+if (interaction.customId.startsWith('armory_buy:')) {
+  const parts = interaction.customId.split(':');
+
+  if (parts.length < 2) {
+    return interaction.reply({
+      content: '⚠️ Invalid purchase interaction.',
+      ephemeral: true
+    });
+  }
+
+  const [, itemId] = parts;
+  const item = armoryInventory.get(itemId);
+
+  if (!item || !item.active) {
+    return interaction.reply({
+      content: '⚠️ This item is no longer available in the armory.',
+      ephemeral: true
+    });
+  }
+
+  if (item.stock <= 0) {
+    return interaction.reply({
+      content: '⚠️ This item has already been claimed.',
+      ephemeral: true
+    });
+  }
+
+  const currentBalance = getUserXP(interaction.user.id);
+
+  if (currentBalance < item.price) {
+    return interaction.reply({
+      content:
+        `⚙️ **The Machine Spirit denies this request.**\n\n` +
+        `Required: ${item.price} Armory Data\n` +
+        `You possess: ${currentBalance}`,
+      ephemeral: true
+    });
+  }
+
+  // COMPLETE PURCHASE
+  removeUserXP(interaction.user.id, item.price);
+  item.stock -= 1;
+
+  if (item.stock <= 0) {
+    item.active = false;
+  }
+
+  armoryInventory.set(itemId, item);
+
+  // LOG TO FORGE CHANNEL
+  const forgeChannel = interaction.guild.channels.cache.get(FORGE_CHANNEL_ID);
+  if (forgeChannel) {
+    await forgeChannel.send(
+      `⚙️ **Armory Acquisition Logged**\n` +
+      `**Brother:** ${interaction.user}\n` +
+      `**Item:** ${item.itemName}\n` +
+      `**Cost:** ${item.price} Armory Data\n` +
+      `**Stock Remaining:** ${item.stock}`
+    );
+  }
+
+  // UPDATE SHOP MESSAGE
+  try {
+    const armoryChannel = interaction.guild.channels.cache.get(ARMORY_CHANNEL_ID);
+
+    if (armoryChannel && item.shopMessageId) {
+      const shopMsg = await armoryChannel.messages.fetch(item.shopMessageId);
+
+      await shopMsg.edit({
+        content: shopMsg.content,
+        embeds: [buildArmoryShopEmbed(item)],
+        components: item.active ? [buildArmoryShopRow(item.itemId)] : []
+      });
+    }
+  } catch (err) {
+    console.error('Armory message update failed:', err);
+  }
+
+  return interaction.reply({
+    content:
+      `⚙️ **Praise the Omnissiah**\n\n` +
+      `You have successfully acquired **${item.itemName}** for ${item.price} Armory Data.`,
+    ephemeral: true
+  });
+}
+
+// ================= ARMORY BALANCE =================
+if (interaction.customId.startsWith('armory_balance')) {
+  const currentBalance = getUserXP(interaction.user.id);
+
+  return interaction.reply({
+    content:
+      `⚙️ **The Machine Spirit reports your reserves.**\n\n` +
+      `You currently possess: **${currentBalance} Armory Data**`,
+    ephemeral: true
+  });
+}
 // ================= SPECIALTY APPLICATION SYSTEM =================
 const specialty = SPECIALTY_CONFIG.specialties.find(
   spec => spec.buttonId === interaction.customId
@@ -2238,7 +2599,7 @@ if (interaction.customId.startsWith('help_')) {
         trialData: {
           ...current.trialData,
           champion: {
-            ...current.trialData.champion,
+            ...current.trialData.champion
             challengerStatus: 'approved',
             duelPending: true
           }
@@ -2595,6 +2956,120 @@ if (interaction.customId.startsWith('help_')) {
 
 client.on(Events.MessageCreate, async message => {
   if (message.author.bot || !message.guild) return;
+
+// ================= ARMORY SUBMISSION FLOW =================
+if (message.author.bot || !message.guild) return;
+
+const armorySubmission = getArmorySubmission(message.author.id);
+
+if (armorySubmission) {
+
+  
+  if (!message.member) return;
+
+  if (!isArmoryManager(message.member)) {
+    clearArmorySubmission(message.author.id);
+    return message.reply('⚠️ Your armory submission session has been cleared.');
+  }
+
+  if (message.channel.id !== FORGE_CHANNEL_ID) {
+    return message.reply(`⚠️ Continue your armory submission in <#${FORGE_CHANNEL_ID}>.`);
+  }
+
+  // STEP 1: IMAGE
+  if (armorySubmission.step === 'awaiting_image') {
+    const attachment = message.attachments.first();
+
+    if (!attachment || !attachment.contentType?.startsWith('image/')) {
+      return message.reply(
+        '⚠️ Upload a valid image for the armor piece to continue the forge process.'
+      );
+    }
+
+    armorySubmission.imageUrl = attachment.url;
+    armorySubmission.step = 'awaiting_name';
+
+    return message.reply(
+      '⚙️ Image received.\n\nWhat is the name of this armor piece?'
+    );
+  }
+
+  // STEP 2: NAME
+  if (armorySubmission.step === 'awaiting_name') {
+    const itemName = message.content.trim();
+
+    if (!itemName || itemName.length < 2) {
+      return message.reply('⚠️ Enter a valid armor piece name.');
+    }
+
+    armorySubmission.itemName = itemName;
+    armorySubmission.step = 'awaiting_category';
+
+    return message.reply(
+      `⚙️ Name recorded: **${itemName}**\n\n` +
+      `Now enter a category from the following list:\n` +
+      `${ARMORY_CATEGORIES.map(cat => `• ${cat}`).join('\n')}`
+    );
+  }
+
+  // STEP 3: CATEGORY
+  if (armorySubmission.step === 'awaiting_category') {
+    const inputCategory = message.content.trim().toLowerCase();
+
+    const matchedCategory = ARMORY_CATEGORIES.find(
+      cat => cat.toLowerCase() === inputCategory
+    );
+
+    if (!matchedCategory) {
+      return message.reply(
+        `⚠️ Invalid category.\nChoose one of:\n${ARMORY_CATEGORIES.map(cat => `• ${cat}`).join('\n')}`
+      );
+    }
+
+    armorySubmission.category = matchedCategory;
+    armorySubmission.step = 'awaiting_price';
+
+    return message.reply(
+      `⚙️ Category recorded: **${matchedCategory}**\n\n` +
+      `What is the armory data price for this item?`
+    );
+  }
+
+  // STEP 4: PRICE
+  if (armorySubmission.step === 'awaiting_price') {
+    const price = parseInt(message.content.trim(), 10);
+
+    if (Number.isNaN(price) || price <= 0) {
+      return message.reply('⚠️ Enter a valid price greater than 0.');
+    }
+
+    armorySubmission.price = price;
+    armorySubmission.step = 'awaiting_stock';
+
+    return message.reply(
+      `⚙️ Price recorded: **${price} Armory Data**\n\n` +
+      `How many are available in stock?`
+    );
+  }
+
+  // STEP 5: STOCK
+  if (armorySubmission.step === 'awaiting_stock') {
+    const stock = parseInt(message.content.trim(), 10);
+
+    if (Number.isNaN(stock) || stock <= 0) {
+      return message.reply('⚠️ Enter a valid stock amount greater than 0.');
+    }
+
+    armorySubmission.stock = stock;
+    armorySubmission.step = 'pending_review';
+
+    return message.reply({
+      content: '⚙️ Armory item ready for review.',
+      embeds: [buildArmoryReviewEmbed(armorySubmission, message.member)],
+      components: [buildArmoryReviewRow(message.author.id)]
+    });
+  }
+}
 
   if (message.content === '!ping') {
     return message.reply('Pong!');

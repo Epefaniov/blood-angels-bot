@@ -2260,55 +2260,56 @@ if (interaction.customId.startsWith('help_')) {
 
     const disabledRows = buildDisabledRowsFromMessage(interaction.message);
 
-    if (action === 'approve') {
-      const updatePayload = {
-        progressionChoiceOffered: true,
-        progressionChoicePending: false,
-        progressionChoiceMade: true,
-        selectedPath: expectedPathLabel,
-        pathStatus: pathKey === PATH_KEYS.FIRETEAM ? 'active' : 'approved'
-      };
+if (action === 'approve') {
+  const updatePayload = {
+    progressionChoiceOffered: true,
+    progressionChoicePending: false,
+    progressionChoiceMade: true,
+    selectedPath: expectedPathLabel,
+    pathStatus: pathKey === PATH_KEYS.FIRETEAM ? 'active' : 'approved'
+  };
 
-      if (pathKey === PATH_KEYS.FIRETEAM) {
-        updatePayload.fireteamData = {
-          ...promoData.fireteamData,
-          active: true,
-          approvedAt: new Date().toISOString(),
-          reassessmentDue: false
-        };
+  if (pathKey === PATH_KEYS.FIRETEAM) {
+    updatePayload.fireteamData = {
+      ...promoData.fireteamData,
+      active: true,
+      approvedAt: new Date().toISOString(),
+      reassessmentDue: false
+    };
+  }
+
+  if (pathKey === PATH_KEYS.CHAMPION) {
+    updatePayload.trialData = {
+      ...promoData.trialData,
+      champion: {
+        ...promoData.trialData.champion,
+        active: true,
+        status: 'approved',
+        attempts: (promoData.trialData.champion.attempts || 0) + 1,
+        cooldownUntil: null,
+        lastReport: null
       }
+    };
+  }
 
-      if (pathKey === PATH_KEYS.CHAMPION) {
-        updatePayload.trialData = {
-          ...promoData.trialData,
-          champion: {
-            ...promoData.trialData.champion,
-            active: true,
-            status: 'approved',
-            attempts: (promoData.trialData.champion.attempts || 0) + 1,
-            cooldownUntil: null,
-            lastReport: null
-          }
-        };
+  if (pathKey === PATH_KEYS.ANCIENT) {
+    updatePayload.trialData = {
+      ...promoData.trialData,
+      ancient: {
+        ...promoData.trialData.ancient,
+        active: true,
+        status: 'approved',
+        attempts: (promoData.trialData.ancient.attempts || 0) + 1,
+        operations: {
+          Inferno: null,
+          Decapitation: null
+        }
       }
-
-      if (pathKey === PATH_KEYS.ANCIENT) {
-        updatePayload.trialData = {
-          ...promoData.trialData,
-          ancient: {
-            ...promoData.trialData.ancient,
-            active: true,
-            status: 'approved',
-            attempts: (promoData.trialData.ancient.attempts || 0) + 1,
-            operations: {
-              Inferno: null,
-              Decapitation: null
-            }
-          }
-        };
-      }
-
-      setProgressionChoiceState(targetUserId, updatePayload);
+    };
+  }
+      
+	
+	setProgressionChoiceState(targetUserId, updatePayload);
 
       if (pathKey === PATH_KEYS.FIRETEAM) {
         await syncMemberRankRole(targetMember, 'Fireteam Leader');
@@ -2638,17 +2639,17 @@ if (interaction.customId.startsWith('help_')) {
     }
 
     if (action === 'deny') {
-      updateUserPromotion(userId, current => ({
-        ...current,
-        trialData: {
-          ...current.trialData,
-          champion: {
-            ...current.trialData.champion,
-            challengerStatus: 'denied',
-            duelPending: false
-          }
-        }
-      }));
+ updateUserPromotion(userId, current => ({
+  ...current,
+  trialData: {
+    ...current.trialData,
+    champion: {
+      ...current.trialData.champion,
+      challengerStatus: 'delayed',
+      duelPending: false
+    }
+  }
+}));
 
       try {
         await targetMember.send(
@@ -2770,19 +2771,19 @@ if (interaction.customId.startsWith('help_')) {
       await awardExclusiveRole(challenger, COMPANY_CHAMPION_ROLE_ID);
       setUserTitle(challenger.id, 'Company Champion');
 
-      updateUserPromotion(userId, current => ({
-        ...current,
-        trialData: {
-          ...current.trialData,
-          champion: {
-            ...current.trialData.champion,
-            challengerStatus: 'challenger_won',
-            duelPending: false,
-            active: false,
-            status: 'passed'
-          }
-        }
-      }));
+updateUserPromotion(userId, current => ({
+  ...current,
+  trialData: {
+    ...current.trialData,
+    champion: {
+      ...current.trialData.champion,
+      challengerStatus: 'challenger_won',
+      duelPending: false,
+      active: false,
+      status: 'passed'
+    }
+  }
+}));
 
       if (currentChampion && currentChampion.id !== challenger.id) {
         setUserTitle(currentChampion.id, null);

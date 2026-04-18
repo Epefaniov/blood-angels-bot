@@ -2535,108 +2535,174 @@ if (action === 'approve') {
       return;
     }
 
-    if (action === 'moretime') {
-      updateUserPromotion(userId, current => ({
-        ...current,
-        fireteamData: {
-          ...current.fireteamData,
-          sergeantReviewStatus: 'needs_more_time'
-        }
-      }));
-
-      try {
-        await targetMember.send(
-          `⚠️ **High Command has reviewed your service.**\n\n` +
-          `You have been marked as **Needs More Time** upon the Fireteam Leader path. Continue to prove yourself.`
-        );
-      } catch (error) {
-        console.error(`Could not DM ${targetMember.user.tag}:`, error);
-      }
-
-      await interaction.update({
-        content:
-          `⚠️ **Sergeant Review Complete**\n` +
-          `Brother <@${userId}> has been marked **Needs More Time**.\n` +
-          `Reviewed by ${interaction.user}.`,
-        components: disabledRows
-      });
-
-      return;
+   if (action === 'moretime') {
+  updateUserPromotion(userId, current => ({
+    ...current,
+    fireteamData: {
+      ...current.fireteamData,
+      sergeantReviewStatus: 'needs_more_time'
     }
+  }));
+
+  try {
+    await targetMember.send(
+      `⚠️ **High Command has reviewed your service.**\n\n` +
+      `You have been marked as **Needs More Time** upon the Fireteam Leader path. Continue to prove yourself.`
+    );
+  } catch (error) {
+    console.error(`Could not DM ${targetMember.user.tag}:`, error);
   }
 
-  // ================= CHAMPION CHALLENGER =================
-  if (interaction.customId.startsWith('champchallenger:')) {
-    if (!interaction.guild || !interaction.member) {
-      return interaction.reply({
-        content: '⚠️ This action may only be used inside the guild.',
-        ephemeral: true
-      });
-    }
+  await interaction.update({
+    content:
+      `⚠️ **Sergeant Review Complete**\n` +
+      `Brother <@${userId}> has been marked **Needs More Time**.\n` +
+      `Reviewed by ${interaction.user}.`,
+    components: disabledRows
+  });
 
-    if (!hasCommandAuthority(interaction.member)) {
-      return interaction.reply({
-        content: '⚠️ Only High Command, Captains, or Lieutenants may review Champion challengers.',
-        ephemeral: true
-      });
-    }
+  return;
+}
 
-    const [, action, userId] = interaction.customId.split(':');
-    const targetMember = await interaction.guild.members.fetch(userId).catch(() => null);
+ // ================= CHAMPION CHALLENGER =================
+if (interaction.customId.startsWith('champchallenger:')) {
+  if (!interaction.guild || !interaction.member) {
+    return interaction.reply({
+      content: '⚠️ This action may only be used inside the guild.',
+      ephemeral: true
+    });
+  }
 
-    if (!targetMember) {
-      return interaction.reply({
-        content: '⚠️ Could not find that brother in the server.',
-        ephemeral: true
-      });
-    }
+  if (!hasCommandAuthority(interaction.member)) {
+    return interaction.reply({
+      content: '⚠️ Only High Command, Captains, or Lieutenants may review Champion challengers.',
+      ephemeral: true
+    });
+  }
 
-    const promoData = getUserPromotion(userId);
-    const disabledRows = buildDisabledRowsFromMessage(interaction.message);
+  const [, action, userId] = interaction.customId.split(':');
+  const targetMember = await interaction.guild.members.fetch(userId).catch(() => null);
 
-    if (action === 'approve') {
-      updateUserPromotion(userId, current => ({
-        ...current,
-        trialData: {
-          ...current.trialData,
-          champion: {
-            ...current.trialData.champion
-            challengerStatus: 'approved',
-            duelPending: true
-          }
+  if (!targetMember) {
+    return interaction.reply({
+      content: '⚠️ Could not find that brother in the server.',
+      ephemeral: true
+    });
+  }
+
+  const promoData = getUserPromotion(userId);
+  const disabledRows = buildDisabledRowsFromMessage(interaction.message);
+
+  if (action === 'approve') {
+    updateUserPromotion(userId, current => ({
+      ...current,
+      trialData: {
+        ...current.trialData,
+        champion: {
+          ...current.trialData.champion,
+          challengerStatus: 'approved',
+          duelPending: true
         }
-      }));
-
-      try {
-        await targetMember.send(
-          `⚔️ **High Command has sanctioned your challenge.**\n\n` +
-          `You are now an approved challenger for the mantle of **Company Champion**.`
-        );
-      } catch (error) {
-        console.error(`Could not DM ${targetMember.user.tag}:`, error);
       }
+    }));
 
-      const highCommandChannel = interaction.guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
-      if (highCommandChannel) {
-        await highCommandChannel.send({
-          content:
-            `⚔️ **Champion Duel Resolution Required**\n` +
-            `A sanctioned challenger now stands for the title: ${targetMember}\n` +
-            `Record the result of the challenge after it is complete.`,
-          components: [buildChampionDuelResolutionRow(userId)]
-        });
-      }
-
-      await interaction.update({
-        content:
-          `✅ **Champion Challenger Approved**\n` +
-          `Brother <@${userId}> has been sanctioned as a challenger.\n` +
-          `Reviewed by ${interaction.user}.`,
-        components: disabledRows
-      });
-
-      return;
+    try {
+      await targetMember.send(
+        `⚔️ **High Command has sanctioned your challenge.**\n\n` +
+        `You are now an approved challenger for the mantle of **Company Champion**.`
+      );
+    } catch (error) {
+      console.error(`Could not DM ${targetMember.user.tag}:`, error);
     }
+
+    const highCommandChannel = interaction.guild.channels.cache.get(HIGH_COMMAND_CHANNEL_ID);
+    if (highCommandChannel) {
+      await highCommandChannel.send({
+        content:
+          `⚔️ **Champion Duel Resolution Required**\n` +
+          `A sanctioned challenger now stands for the title: ${targetMember}\n` +
+          `Record the result of the challenge after it is complete.`,
+        components: [buildChampionDuelResolutionRow(userId)]
+      });
+    }
+
+    await interaction.update({
+      content:
+        `✅ **Champion Challenger Approved**\n` +
+        `Brother <@${userId}> has been sanctioned as a challenger.\n` +
+        `Reviewed by ${interaction.user}.`,
+      components: disabledRows
+    });
+
+    return;
+  }
+
+  if (action === 'deny') {
+    updateUserPromotion(userId, current => ({
+      ...current,
+      trialData: {
+        ...current.trialData,
+        champion: {
+          ...current.trialData.champion,
+          challengerStatus: 'denied',
+          duelPending: false
+        }
+      }
+    }));
+
+    try {
+      await targetMember.send(
+        `⚠️ **High Command has rendered judgment.**\n\n` +
+        `Though your Champion trial was passed, you have **not** been sanctioned to challenge for the title at this time.`
+      );
+    } catch (error) {
+      console.error(`Could not DM ${targetMember.user.tag}:`, error);
+    }
+
+    await interaction.update({
+      content:
+        `⚠️ **Champion Challenger Denied**\n` +
+        `Brother <@${userId}> has not been sanctioned as a challenger.\n` +
+        `Reviewed by ${interaction.user}.`,
+      components: disabledRows
+    });
+
+    return;
+  }
+
+  if (action === 'delay') {
+    updateUserPromotion(userId, current => ({
+      ...current,
+      trialData: {
+        ...current.trialData,
+        champion: {
+          ...current.trialData.champion,
+          challengerStatus: 'delayed',
+          duelPending: false
+        }
+      }
+    }));
+
+    try {
+      await targetMember.send(
+        `⚠️ **High Command has delayed your challenge.**\n\n` +
+        `Your right to challenge for the mantle of **Company Champion** has been delayed for a later date.`
+      );
+    } catch (error) {
+      console.error(`Could not DM ${targetMember.user.tag}:`, error);
+    }
+
+    await interaction.update({
+      content:
+        `⚠️ **Champion Challenger Delayed**\n` +
+        `Brother <@${userId}> remains a pending challenger for a later date.\n` +
+        `Reviewed by ${interaction.user}.`,
+      components: disabledRows
+    });
+
+    return;
+  }
+}
 
     if (action === 'deny') {
  updateUserPromotion(userId, current => ({

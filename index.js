@@ -337,6 +337,16 @@ const ARMORY_CHANNEL_ID = '1495062722599977100';
 const FORGE_CHANNEL_ID = '1495062873079021790';
 const BLOOD_ANGELS_ROLE_ID = '1459548608021008508';
 
+
+function buildArmoryForgeRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('armory_add_item')
+      .setLabel('Add Armory Item')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
 const armoryDropMessages = [
   'A new pattern has been sanctified. The Machine Spirit endures. Secure it while stock remains.',
   'The forge has completed its rite. The Machine Spirit awakens. Claim it before depletion.',
@@ -3025,7 +3035,6 @@ client.on(Events.MessageCreate, async message => {
   if (message.author.bot || !message.guild) return;
 
 // ================= ARMORY SUBMISSION FLOW =================
-if (message.author.bot || !message.guild) return;
 
 const armorySubmission = getArmorySubmission(message.author.id);
 
@@ -3136,6 +3145,45 @@ if (armorySubmission) {
       components: [buildArmoryReviewRow(message.author.id)]
     });
   }
+}
+
+ // ================= ARMORY PANEL DEPLOY =================
+if (message.content === '!armorypanel') {
+  if (!message.guild || !message.member) return;
+
+  if (!isArmoryManager(message.member)) {
+    return message.reply('⚠️ Only authorized forge staff may deploy the armory panel.');
+  }
+
+  if (message.channel.id !== FORGE_CHANNEL_ID) {
+    return message.reply(`⚠️ Deploy the armory panel in <#${FORGE_CHANNEL_ID}>.`);
+  }
+
+  const pinnedMessages = await message.channel.messages.fetchPinned().catch(() => null);
+
+  if (pinnedMessages) {
+    const existingPanel = pinnedMessages.find(msg =>
+      msg.author.id === client.user.id &&
+      msg.content.includes('Forge Armory Control Panel')
+    );
+
+    if (existingPanel) {
+      return message.reply('⚠️ An Armory Forge panel is already pinned in this channel.');
+    }
+  }
+
+  const panelMessage = await message.channel.send({
+    content:
+      '⚙️ **Forge Armory Control Panel**\n\n' +
+      'Authorized brothers may begin the item-forging process below.',
+    components: [buildArmoryForgeRow()]
+  });
+
+  await panelMessage.pin().catch(err =>
+    console.error('Failed to pin armory panel:', err)
+  );
+
+  return message.reply('✅ Armory Forge panel deployed and pinned.');
 }
 
   if (message.content === '!ping') {

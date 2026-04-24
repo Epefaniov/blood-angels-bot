@@ -34,7 +34,6 @@ const TRIAL_CHANNEL_ID = "1468646038473543824";
 
 // RANK-SPECIFIC UNIFORM CHANNELS
 const UNIFORM_CHANNELS = {
-  'Aspirant': '1485971068005912738',
   'Neophyte': '1485970957817483384',
   'Scout': '1485970849428275252',
   'Battle Brother': '1469735774982373480',
@@ -86,7 +85,6 @@ const CAPTAIN_ROLE_IDS = [
 // Rank ID'S
 // LT is Above all of this Shit
 const RANK_ROLE_IDS = {
-  'Aspirant': '1485738443647484107',
   'Neophyte': '1353901950545952849',
   'Scout': '1486020968962068661',
   'Battle Brother': '1347217906873794668',
@@ -155,7 +153,7 @@ const ENVOY_ROLE_ID = '1347217906873794665';
 
 // SETTINGS
 const MIN_AAR_LENGTH = 40;
-const FIRETEAM_CHOICE_THRESHOLD = 75;
+const FIRETEAM_CHOICE_THRESHOLD = 60;
 
 // ===== PATH KEYS =====
 const PATH_KEYS = {
@@ -198,35 +196,29 @@ const thirstLore = [
 // RANK DATA
 const rankData = [
   {
-    name: 'Aspirant',
-    minPoints: 0,
-    description: 'An Aspirant is a youth chosen from the tribes and hive-clans of Baal, marked by fate and trial to walk the path of the Angels.',
-    expectations: 'Endure the Trials of the Aspirant with honor and determination. Your strength, will, and purity of purpose shall be tested only through perseverance and sacrifice may you earn the right to ascend.',
-    note: 'While taking the Angel Falls Trials you will be limited to Vanguard and Sniper.'
-  },
-  {
+ 
     name: 'Neophyte',
-    minPoints: 6,
+    minPoints: 0,
     description: 'A Neophyte is an adolescent recruit of the Blood Angels undergoing transformation into a superhuman Astartes through the implantation of the gene-seed organs and their initial combat seasoning.',
     expectations: 'Continue your transformation with discipline, loyalty, and devotion to the legacy of Sanguinius.'
   },
   {
     name: 'Scout',
-    minPoints: 12,
+    minPoints: 9,
     description: 'A Scout of the Blood Angels is a newly forged battle-brother who has survived the trials of ascension and now walks the path of war.',
     expectations: 'Operate with precision, patience, and discipline in all engagements. Hone your combat prowess, control your instincts, and prepare yourself to stand as a full Battle-Brother.',
     note: 'As a Scout, the classes you can now play are Tactical, Vanguard, and Sniper.'
   },
   {
     name: 'Battle Brother',
-    minPoints: 30,
+    minPoints: 18,
     description: 'Battle-Brothers of the Blood Angels have proven their loyalty and worth through the Neophyte Trials and the implantation of the Chapter’s gene-seed.',
     expectations: 'Embrace the eternal war with grim purpose, suppress the Red Thirst, and fight with unwavering honor in service to the Emperor.',
     note: 'You will be transferred to 3rd Company and assigned to a designated squad and sergeant. All classes are now playable.'
   },
   {
     name: 'Veteran',
-    minPoints: 60,
+    minPoints: 30,
     description: 'A Veteran Astartes of the Blood Angels is a warrior of proven nobility and unbreakable resolve, forged through brutal warfare and refined by the traditions of         Sanguinius.',
     expectations: 'Guide both Battle-Brothers and Initiates, ensuring they uphold the honor, restraint, and martial perfection of the Sons of Sanguinius.'
   },
@@ -238,45 +230,45 @@ const rankData = [
   },
   {
     name: 'Fireteam Leader',
-    minPoints: 75,
+    minPoints: 60,
     description: 'A Fireteam Leader is a trusted brother placed in command of a smaller combat element, expected to guide his squad with discipline and clarity.',
     expectations: 'Lead your assigned brothers with steadiness, maintain order in battle, and prove your readiness for higher command through action and example.'
   },
   {
     name: 'Sergeant',
-    minPoints: 80,
+    minPoints: 60,
     description: 'A Sergeant of the Blood Angels is a seasoned Space Marine entrusted with leading a squad of Battle-Brothers, forming a vital pillar of the Chapter’s command structure.',
     expectations: 'Compile weekly chronicles of deeds, guide younger Brothers, and foster bonds of honor, discipline, and brotherhood.'
   },
   {
     name: 'Veteran Sergeant',
-    minPoints: 100,
+    minPoints: 60,
     description: 'A Veteran Sergeant is a highly experienced and honored warrior who has proven exceptional valor, leadership, and mastery in war.',
     expectations: 'Stand as a paragon before your fellow Sergeants, deliver a weekly chronicle of war, and guide younger Brothers in the noble traditions of the Blood Angels.'
   },
   {
     name: 'Lieutenant',
-    minPoints: 130,
+    minPoints: 100,
     description: 'A Lieutenant of the Blood Angels serves as the Company Captain’s trusted second, often commanding a demi-company in battle.',
     expectations: 'Aid Sergeants in maintaining records and readiness, stand beside your Captain in ordering the battle-line, and foster unity and excellence within the ranks.'
   },
   {
     name: 'Company Ancient',
-    minPoints: 150,
+    minPoints: 100,
     description: 'An Ancient of the Blood Angels is a revered veteran who bears the sacred Company Standard into battle, a living symbol of the Chapter’s honor, artistry, and undying legacy.',
     expectations: 'Strengthen the Company’s ranks, shepherd Neophytes along the path to Brother, and lead Brothers toward the mantle of Veteran with wisdom, patience, and discipline.',
     specialNote: 'This station is one of sacred trust. You bear not merely a banner, but the honor, memory, and spirit of the Company itself.'
   },
   {
     name: 'Company Champion',
-    minPoints: 180,
+    minPoints: 150,
     description: 'A Blood Angels Champion is a peerless warrior of high renown, an exemplar of the Chapter’s martial grace, artistry in battle, and noble bearing.',
     expectations: 'Be ever ready to defend your honor and title. Fight with speed, elegance, and lethal precision as a duelist and battlefield exemplar.',
     specialNote: 'Should another Brother reach the proper standing and complete the required trials, they may issue a formal challenge for the mantle of Champion. The title must be defended in honorable combat.'
   },
   {
     name: 'Captain',
-    minPoints: 220,
+    minPoints: 999999,
     description: 'A Captain of the Blood Angels is a masterful warrior, brilliant strategist, and inspirational leader entrusted with command of a strike force of the Chapter’s sons.',
     expectations: 'Lead your strike force with honor, vision, and distinction. Support subordinate officers, maintain battle readiness and cohesion, and stand as a symbol of inspiration and control.'
   },
@@ -290,7 +282,6 @@ const rankData = [
 ];
 
 const promotionMessages = {
-  'Aspirant': '🩸 The Machine Spirit has taken notice of {user}. The first steps upon the Angelic path now begin.',
   'Neophyte': '⚔️ By decree of the Chapter, {user} has advanced to **Neophyte**. The blood of Baal calls them onward.',
   'Scout': '🩸 {user} now walks as a **Scout** — unseen blade, silent hunter.',
   'Battle Brother': '⚔️ {user} stands now as a **Battle Brother** of the Chapter.',
@@ -307,7 +298,6 @@ const promotionMessages = {
 };
 
 const AUTO_PROGRESS_RANKS = [
-  'Aspirant',
   'Neophyte',
   'Scout',
   'Battle Brother',
@@ -316,9 +306,7 @@ const AUTO_PROGRESS_RANKS = [
 
 const APPROVAL_RANKS = [
   'Sergeant',
-  'Veteran Sergeant',
-  'Lieutenant',
-  'Captain'
+  'Lieutenant'
 ];
 
 const SPECIAL_APPOINTMENT_RANKS = [
@@ -328,8 +316,7 @@ const SPECIAL_APPOINTMENT_RANKS = [
 
 const progressionRankData = rankData.filter(rank =>
   AUTO_PROGRESS_RANKS.includes(rank.name) ||
-  APPROVAL_RANKS.includes(rank.name) ||
-  rank.name === 'Fireteam Leader'
+  APPROVAL_RANKS.includes(rank.name)
 );
 
 // ================= ARMORY SHOP DATA =================
@@ -1241,8 +1228,7 @@ function getHighestManagedRankFromMember(member) {
     'Veteran',
     'Battle Brother',
     'Scout',
-    'Neophyte',
-    'Aspirant'
+    'Neophyte'
   ];
 
   for (const rankName of orderedDetectableRanks) {
@@ -1322,6 +1308,11 @@ async function sendFireteamChoicePrompt(guild, member, points) {
 
 async function handleRankThresholdChange(guild, member, oldTrackedRank, oldPoints, newPoints) {
   if (!guild || !member) return;
+
+if (hasSpecialtyRole(member)) {
+    setEligibleRank(member.id, getHighestManagedRankFromMember(member) || 'Specialty');
+    return;
+  }
 
   const newRank = getRank(newPoints);
   const oldRank = getRank(oldPoints);
@@ -1586,6 +1577,16 @@ function getCurrentSpecialty(member) {
   );
 }
 
+function hasSpecialtyRole(member) {
+  if (!member) return false;
+
+  return Boolean(getCurrentSpecialty(member)) ||
+    member.roles.cache.has(COMPANY_ANCIENT_ROLE_ID) ||
+    member.roles.cache.has(COMPANY_CHAMPION_ROLE_ID) ||
+    CAPTAIN_ROLE_IDS.some(roleId => member.roles.cache.has(roleId)) ||
+    LIEUTENANT_ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+}
+
 async function removeAllSpecialtyRoles(member) {
   const allRoles = SPECIALTY_CONFIG.specialties.flatMap(spec =>
     Object.values(spec.ranks)
@@ -1645,11 +1646,11 @@ client.on(Events.GuildMemberAdd, member => {
   return channel.send(
     `🩸 The Machine Spirit acknowledges a new arrival...\n` +
       `Welcome, ${member}.\n\n` +
-      `You now stand among the sons of Sanguinius as a candidate of the 10th Company.\n` +
+      `You now stand among the sons of Sanguinius as a **Neophyte** of the Chapter.\n` +
       `Master your discipline. Control the thirst. Serve with honor.\n\n` +
       `⚙️ Begin your induction:\n` +
       `• Review the rules and conduct\n` +
-      `• Report to Aspirant uniform issue:<#1485971068005912738>\n` +
+      `• Report to Neophyte uniform issue:<#1485970957817483384>\n` +
       `• Look at the rank structure in <#${RANKS_CHANNEL_ID}>\n` +
       `• Submit AARs after missions\n\n` +
       `Use !help to access all Machine Spirit functions.`
